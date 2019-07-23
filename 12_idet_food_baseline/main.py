@@ -241,6 +241,10 @@ def get_resnet34():
 def get_resnet50():
     return ResNet(Bottleneck, [3, 4, 6, 3],num_classes=4)
 
+
+def get_resnet101():
+    return ResNet(Bottleneck,[3,4,23,3],num_classes=4)
+
 def get_resnet152():
     return ResNet(Bottleneck,[3,8,36,3],num_classes=4)
 

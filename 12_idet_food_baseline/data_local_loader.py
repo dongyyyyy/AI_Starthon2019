@@ -10,6 +10,8 @@ def get_transform():
         std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
     transform = []
     transform.append(transforms.Resize((224,224)))
+    transform.append(transforms.ColorJitter(saturation=0.5,hue=0.5))
+
     transform.append(transforms.ToTensor())
     transform.append(normalize)
     return transforms.Compose(transform)
