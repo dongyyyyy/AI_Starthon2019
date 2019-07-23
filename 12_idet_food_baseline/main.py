@@ -338,7 +338,7 @@ if __name__ == '__main__':
     mode = config.mode
 
     #model = get_resnet18()
-    model = get_resnet152()
+    model = get_resnet50()
     print (model)
     loss_fn = nn.MSELoss()
     init_weight(model)
