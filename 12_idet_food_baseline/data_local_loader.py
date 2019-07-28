@@ -11,7 +11,7 @@ def get_transform():
     transform = []
     transform.append(transforms.Resize((224,224)))
     transform.append(transforms.ColorJitter(saturation=0.5,hue=0.5))
-
+    transform.append(transforms.RandomRotation(180))
     transform.append(transforms.ToTensor())
     transform.append(normalize)
     return transforms.Compose(transform)
@@ -61,7 +61,7 @@ class CustomDataset(data.Dataset):
         return inputs, targets
 
 
-def data_loader(root, phase='train', batch_size=256):
+def data_loader(root, phase='train', batch_size=64):
     if phase == 'train':
         is_train = True
     elif phase == 'test':
@@ -75,7 +75,7 @@ def data_loader(root, phase='train', batch_size=256):
                            shuffle=is_train)
 
 
-def data_loader_with_split(root, train_split=0.9, batch_size=256, val_label_file='./val_label'):
+def data_loader_with_split(root, train_split=0.8, batch_size=64, val_label_file='./val_label'): # batch_size = 32
     input_transform = get_transform()
     dataset = CustomDataset(root, input_transform, target_transform)
     split_size = int(len(dataset) * train_split)

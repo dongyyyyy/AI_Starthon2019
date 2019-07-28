@@ -20,6 +20,8 @@ from evaluation import evaluation_metrics
 import nsml
 from nsml import DATASET_PATH, IS_ON_NSML
 
+#nsml.load(checkpoint='100', session='team_20/12_idet_car/93')
+
 if IS_ON_NSML:
     TRAIN_DATASET_PATH = os.path.join(DATASET_PATH, 'train', 'train_data')
     VAL_DATASET_PATH = None
@@ -36,6 +38,76 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+
+def conv_batch(in_num, out_num, kernel_size=3, padding=1, stride=1):
+    return nn.Sequential(
+        nn.Conv2d(in_num, out_num, kernel_size=kernel_size, stride=stride, padding=padding, bias=False),
+        nn.BatchNorm2d(out_num),
+        nn.LeakyReLU())
+# Residual block
+class DarkResidualBlock(nn.Module):
+    def __init__(self, in_channels):
+        super(DarkResidualBlock, self).__init__()
+
+        reduced_channels = int(in_channels/2)
+
+        self.layer1 = conv_batch(in_channels, reduced_channels, kernel_size=1,padding=0)
+        self.layer2 = conv_batch(reduced_channels, in_channels)
+
+    def forward(self, x):
+        residual = x
+        out = self.layer1(x)
+        out = self.layer2(out)
+        out += residual
+        return out
+
+class Darknet53(nn.Module):
+    def __init__(self, block, num_classes=4):
+        super(Darknet53, self).__init__()
+
+        self.num_classes = num_classes
+
+        self.conv1 = conv_batch(3, 32)
+        self.conv2 = conv_batch(32, 64, stride=2)  #DownSample 2
+        self.residual_block1 = self.make_layer(block, in_channels=64, num_blocks=1)
+        self.conv3 = conv_batch(64, 128, stride=2)  #DownSample 4
+        self.residual_block2 = self.make_layer(block, in_channels=128, num_blocks=2)
+        self.conv4 = conv_batch(128, 256, stride=2) #DownSample 8
+        self.residual_block3 = self.make_layer(block, in_channels=256, num_blocks=8)
+        self.conv5 = conv_batch(256, 512, stride=2) #DownSample 16
+        self.residual_block4 = self.make_layer(block, in_channels=512, num_blocks=8)
+        self.conv6 = conv_batch(512, 1024, stride=2) #DownSample 32
+        self.residual_block5 = self.make_layer(block, in_channels=1024, num_blocks=4)
+
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(1024, self.num_classes)
+
+    def forward(self, x):
+        out = self.conv1(x) # 0
+        out = self.conv2(out) # 1
+        out = self.residual_block1(out) # conv2 ,conv3 ,resnet
+        out = self.conv3(out) # conv5
+        out = self.residual_block2(out) # conv6,conv7,resnet ~conv10 , resnet11
+        out = self.conv4(out) # conv 12
+        out = self.residual_block3(out) # conv13 ~ resnet36
+        out = self.conv5(out) # conv37
+        out = self.residual_block4(out) # conv38 ~ resnet61
+        out = self.conv6(out) #  conv62  DownSample 32
+        out = self.residual_block5(out) # conv63 ~ resnet 74
+
+        out = self.global_avg_pool(out)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+
+        return out
+
+    def make_layer(self, block, in_channels, num_blocks):
+        layers = []
+        for i in range(0, num_blocks):
+            layers.append(block(in_channels))
+        return nn.Sequential(*layers)
+
 
 
 class BasicBlock(nn.Module):
@@ -120,20 +192,6 @@ class Bottleneck(nn.Module): # using resnet152
 
         return out
 
-class ResNet_shortcut(models.ResNet):
-    def forward(self, x):
-        shortcut = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-
-        out += shortcut
-
-        out = self.relu(out)
 
 class ResNet(nn.Module):
 
@@ -229,24 +287,12 @@ class ResNet(nn.Module):
 
         return x
 
-
-def get_resnet18():
-    return ResNet(BasicBlock,
-                      [2, 2, 2, 2],
-                      num_classes=4)
-
-def get_resnet34():
-    return ResNet(BasicBlock,[3,4,6,3],num_classes=4)
-
 def get_resnet50():
-    return ResNet(Bottleneck, [3, 4, 6, 3],num_classes=4)
-
-
-def get_resnet101():
-    return ResNet(Bottleneck,[3,4,23,3],num_classes=4)
-
-def get_resnet152():
-    return ResNet(Bottleneck,[3,8,36,3],num_classes=4)
+    return ResNet(Bottleneck,
+                      [2, 4, 5, 2],
+                      num_classes=4)
+def get_darknet53():
+    return Darknet53(DarkResidualBlock,num_classes=4)
 
 def _infer(model, root_path, test_loader=None):
     if test_loader is None:
@@ -319,10 +365,10 @@ def init_weight(model):
 if __name__ == '__main__':
     # mode argument
     args = argparse.ArgumentParser()
-    args.add_argument("--train_split", type=float, default=0.9)
-    args.add_argument("--lr", type=int, default=0.01)
+    args.add_argument("--train_split", type=float, default=0.8)
+    args.add_argument("--lr", type=int, default=0.005)
     args.add_argument("--cuda", type=bool, default=True)
-    args.add_argument("--num_epochs", type=int, default=10)
+    args.add_argument("--num_epochs", type=int, default=100)
     args.add_argument("--print_iter", type=int, default=10)
     args.add_argument("--eval_split", type=str, default='val')
 
@@ -341,9 +387,9 @@ if __name__ == '__main__':
     eval_split = config.eval_split
     mode = config.mode
 
-    #model = get_resnet18()
-    model = get_resnet50()
-    print (model)
+    #model = get_resnet50()
+    model = get_darknet53()
+    print(model)
     loss_fn = nn.MSELoss()
     init_weight(model)
 
